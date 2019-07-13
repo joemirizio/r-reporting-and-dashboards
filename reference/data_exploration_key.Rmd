@@ -1,0 +1,162 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+Congratulations on your new job as a healthcare data analyst!
+
+Your first project is to work with an inpatient unit to help them understand more about their patients.
+
+The physicians that lead this unit have long felt that there are particular trends in their work, but they have not had the opportunity to explore them with data.  They hope that answering these questions can help them provide better care.
+
+Conduct preliminary exploratory analysis using dplyr.  The answers to these questions will inform quality improvement metrics that this hospital unit can focus on and track over time.
+
+1. Who are the patients that have long lengths of stay? Is there a variable that highlights a subgroup with a longer length of stay than other subgroups?
+
+2. Are there times when a particular group of patients are most likely to arrive at this inpatient unit?
+
+Here, load the data and see a brief snapshot:
+```{r}
+library(dplyr)
+library(magrittr)
+library(lubridate)
+library(ggplot2)
+
+dataset <- readr::read_csv("dataset.csv")
+head(dataset)
+```
+
+# Question 1: Length of Stay
+
+## Create length of stay variable
+Length of stay is the amount of time a patient spends in the hospital, most frequently displayed in hours.
+
+LOS = Discharge Date Time - Admit Date Time
+```{r}
+dataset <- dataset %>% 
+  mutate(los_hours = as.numeric(difftime(hosp_discharge_dt,
+                                         hosp_admit_dt,
+                                         units = "hours")))
+#Teaching notes:
+#CREATE DIFFTIME
+#ADD AS.NUMERIC
+```
+
+## Visualize LOS Distribution
+```{r}
+hist(dataset$los_hours, breaks = 60)
+# Teaching notes
+# ADD BREAKS
+```
+
+## Identify LOS subgroups
+Let's relate LOS to other variables in the dataset to see if there are particular subgroups of the cohort that could be targeted for intervention.
+```{r}
+dataset %>%
+  group_by(visit_reason) %>%
+  summarise(mean_los = mean(los_hours))
+
+# ADD VISIT_REASON TO GROUP BY
+# ADD MEAN() LOS
+```
+
+
+## Production ready plot
+```{r}
+# Prepare data for visualization
+dataset <- dataset %>% 
+  mutate(discharge_month = floor_date(hosp_discharge_dt, "month"))
+
+#Roll up to the day time period instead of hours
+los_heatmap_data <- dataset %>% 
+  group_by(discharge_month, visit_reason) %>% 
+  summarise(mean_los = mean(los_hours / 24)) %>% 
+  ungroup() 
+
+#create basic heat map
+los_heatmap <- ggplot(los_heatmap_data, aes(x = as.Date(discharge_month), y = visit_reason)) +
+  geom_tile(aes(fill = mean_los),
+            colour = "white") +
+  scale_fill_gradient(low = "white",
+                      high = "steelblue")
+
+#Add features
+los_heatmap <- los_heatmap + 
+  xlab("Discharge Month") +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b %Y") +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) +
+  ylab("Visit Condition") +
+  labs(fill = "LOS Days")
+
+los_heatmap
+```
+
+
+
+# Question 2: Arrival Time
+## Quantify time
+Time data is difficult because it is continuous but also cyclical
+```{r}
+#convert into minutes since midnight
+dataset <- dataset %>% 
+  mutate(minutes_since_midnight = hour(hosp_admit_dt) * 60 + minute(hosp_admit_dt)) %>% 
+  mutate(admit_dow = wday(hosp_admit_dt, label = T))
+```
+
+##Visualize Distribution
+```{r}
+hist(dataset$minutes_since_midnight)
+```
+
+##Identify arrival time subgroups
+```{r}
+#Split data by day of week
+dataset %>% 
+  group_by(admit_dow) %>% 
+  summarise(mean = mean(minutes_since_midnight))
+```
+
+## Breakdown by day of week
+```{r}
+#Facet wrap the ggplot histogram by admit_dow
+ggplot(data = dataset, aes(x = minutes_since_midnight)) + geom_histogram() +
+  facet_wrap(~admit_dow)
+```
+
+## Production ready plot
+```{r}
+#Summary data to plot
+minutes_midnight_data <- dataset %>% 
+  mutate(weekend_weekday = case_when(admit_dow %in% c("Sat", "Sun") ~ "Weekend",
+                                     TRUE ~ "Weekday"),
+         admit_month = floor_date(hosp_admit_dt, "month")) %>% 
+  group_by(weekend_weekday, admit_month) %>% 
+  summarise(mean_minutes = mean(minutes_since_midnight)) %>% 
+  ungroup()
+
+#Split between weekends and weekdays
+minutes_midnight_data_weekday <- minutes_midnight_data %>% 
+  filter(weekend_weekday == "Weekday")
+
+minutes_midnight_data_weekend <- minutes_midnight_data %>% 
+  filter(weekend_weekday == "Weekend")
+
+#Visualize
+highchart(type="stock") %>%
+  hc_add_series(minutes_midnight_data_weekday,
+                type = "line",
+                marker = list(enabled = T, symbol="circle", radius = 3),
+                name = "Weekday Minutes",
+                hcaes(x = as.Date(admit_month),
+                      y = mean_minutes)) %>%
+  hc_add_series(minutes_midnight_data_weekend,
+                type = "line",
+                marker = list(enabled = T, symbol="circle", radius = 3),
+                name = "Weekend Minutes",
+                hcaes(x = as.Date(admit_month),
+                      y = mean_minutes))
+```
+
+
+
+

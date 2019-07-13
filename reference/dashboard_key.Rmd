@@ -1,0 +1,239 @@
+---
+# App title - will appear in the header section
+title: "Hospital Unit Dashboard" 
+runtime: shiny 
+output:
+  flexdashboard::flex_dashboard: 
+    navbar:
+    # flexdashboard layouts can be in columns (if you want graphs side-by-side - then their
+    # "containers" are columns) or rows (if you want graphs stacked, then their "containers" 
+    # are rows); here we've defined the default orientation to be rows, but you can change your pages
+    # individually to use columns if you want a mix of the two (see below for more)
+    orientation: rows 
+    # Do  we want the charts to fill the page vertically - thus they resize when the window does?
+    # If yes (usual case), put "fill" here. If not, put "scroll" here - this will keep the charts'
+    # original height and add a scrollbar as necessary (you may want this if you have
+    # 2+ charts stacked in rows). 
+    vertical_layout: fill 
+    # This allows a user to see the source code that generated the app, by clicking on "Source Code"
+    # in the upper right hand corner. This is most useful for other data analysts who visit your
+    # app and want to understand how it's built.
+    source_code: embed
+---
+
+```{r about-and-yaml, eval=FALSE}
+# About this guide: 
+# This guide serves as a working example of the types of functions, layouts, etc. you could do in a
+# flexdashboard. It assumes you already know how to use R to report on your data, including setting up
+# your R environment, wrangling data using dplyr, and creating basic visualizations. The intent is for
+# you to be able to run this guide locally and pair what you see in the code with the front-end
+# visualization. This app is also published on RStudio Connect if you want to view the front-end on the
+# web: https://rstudio-connect.chop.edu/content/80/. You can also hit the play button that 
+# says "Run Document" at the top of this .Rmd file to run this file locally.
+
+# This is not meant to be exhaustive, rather to get you started on making a simple dashboard to 
+# fit the needs of a project. There are many cool functionalities you could do that are not covered
+# here, but have been explored by another analysts, so please reach out on Slack if you want to do
+# something but do not know how. For more information on layouts available, 
+# go here: https://rmarkdown.rstudio.com/flexdashboard/layouts.html#overview
+
+# Let's get started:
+# What is that stuff up there?
+# That is the YAML (if you're curious: Yet Another Markup Language). It is where you define 
+# settings for the entire app. See the comments next to each thing to understand what they do.
+```
+
+```{r packages, include=FALSE}
+# This is where you load your packages (your packages may differ depending on what you used to process
+# your data or make your charts). While it may be tempting to copy-and-paste this package chunk from
+# your other dashboards, you should only include those libraries that you actually use in your
+# dashboard - this will help minimize the run-time. Do not include any libPath manipulation when
+# publishing.
+
+library(flexdashboard)
+library(DT)
+library(highcharter)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+
+# Prevent all code chunks from printing code, warnings, or messages
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+#Import data
+dataset <- read.csv("dataset.csv")
+
+#Clean data, make summary variables
+dataset <- dataset %>% 
+  mutate(hosp_admit_dt = lubridate::as_datetime(hosp_admit_dt),
+         hosp_discharge_dt = lubridate::as_datetime(hosp_discharge_dt),
+         discharge_month = lubridate::floor_date(hosp_discharge_dt, "month"),
+         los_hours = as.numeric(difftime(hosp_discharge_dt, hosp_admit_dt, tz = "EST", units = "hours")),
+         admit_dow = wday(hosp_admit_dt, label = T),
+         minutes_since_midnight = hour(hosp_admit_dt) * 60 + minute(hosp_admit_dt))
+```
+
+
+
+Length of Stay
+======================================================================
+
+Sidebar {.sidebar}
+----------------------------
+
+### Overview
+<b>Length of stay</b> is defined as the time between the admission date time and the discharge date time.
+<br>
+```{r}
+selectInput(inputId = "los_provider", 
+            label = h5("Provider"), 
+            choices = sort(unique(dataset$provider)),
+            selected = NULL,
+            selectize = TRUE,
+            multiple = FALSE)
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+###
+
+```{r}
+#Create a reactive element
+los_heatmap <- shiny::reactive({ 
+
+# Prepare data to be graphed
+los_heatmap_data <- dataset %>% 
+  filter(provider %in% input$los_provider | input$los_provider == "All") %>% 
+  group_by(discharge_month, visit_reason) %>% 
+  summarise(mean_los = mean(los_hours/24)) %>% 
+  ungroup()
+
+ggplot(los_heatmap_data, aes(x = as.Date(discharge_month), y = visit_reason)) +
+  geom_tile(aes(fill = mean_los),
+            colour = "white") +
+  scale_fill_gradient(low = "white",
+                      high = "steelblue") +
+  xlab("Discharge Month") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) +
+  ylab("Visit Condition") +
+  labs(fill = "LOS Days")
+})
+
+renderPlot(los_heatmap())
+```
+
+
+Arrival Time
+======================================================================
+
+Sidebar {.sidebar}
+----------------------------
+
+### Overview
+This metric shows the mean arrival times for each condition.
+
+<br>
+```{r}
+checkboxGroupInput(inputId = "arrival_reason", 
+            label = h5("Visit Reason"),
+            choices = sort(unique(dataset$visit_reason)),
+            selected = sort(unique(dataset$visit_reason))[1])
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+###
+
+```{r}
+arrival_line_graph <- shiny::reactive({ 
+
+#Summary data to plot
+minutes_midnight_data <- dataset %>% 
+  filter(visit_reason %in% input$arrival_reason) %>% 
+  mutate(weekend_weekday = case_when(admit_dow %in% c("Sat", "Sun") ~ "Weekend",
+                                     TRUE ~ "Weekday"),
+         admit_month = floor_date(hosp_admit_dt, "month")) %>% 
+  group_by(weekend_weekday, admit_month) %>% 
+  summarise(mean_hours = mean(minutes_since_midnight)/60) %>% 
+  ungroup()
+
+#Split between weekends and weekdays
+minutes_midnight_data_weekday <- minutes_midnight_data %>% 
+  filter(weekend_weekday == "Weekday")
+
+minutes_midnight_data_weekend <- minutes_midnight_data %>% 
+  filter(weekend_weekday == "Weekend")
+
+#Visualize
+highchart(type="stock") %>%
+  hc_add_series(minutes_midnight_data_weekday,
+                type = "line",
+                marker = list(enabled = T, symbol="circle", radius = 3),
+                name = "Weekday Minutes",
+                hcaes(x = as.Date(admit_month),
+                      y = mean_hours)) %>%
+  hc_add_series(minutes_midnight_data_weekend,
+                type = "line",
+                marker = list(enabled = T, symbol="circle", radius = 3),
+                name = "Weekend Minutes",
+                hcaes(x = as.Date(admit_month),
+                      y = mean_hours))
+})
+
+renderHighchart(arrival_line_graph())
+```
+
+Readmissions
+======================================================================
+
+Sidebar {.sidebar}
+----------------------------
+
+### Overview
+This metric shows the readmission rates for those with and without the post discharge phone call.
+
+<br>
+```{r}
+radioButtons(inputId = "readmissions_period",
+             label = "Readmission Period in Days",
+             choices = c("Seven", "Fourteen", "Thirty"),
+             selected = "Seven"
+            )
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+###
+
+```{r}
+readmits_all <- shiny::reactive({
+  dataset %>% 
+    group_by(discharge_month, discharge_followup_call_ind) %>% 
+    summarise(Seven = mean(readmit_7_day_ind),
+              Fourteen = mean(readmit_14_day_ind),
+              Thirty = mean(readmit_30_day_ind)) %>% 
+    ungroup() %>% 
+    select(discharge_month, discharge_followup_call_ind, period = input$readmissions_period)
+  })
+
+renderHighchart({
+highchart(type="stock") %>%
+  hc_add_series(readmits_all(),
+                type = "line",
+                marker = list(enabled = T, symbol="circle", radius = 3),
+                name = "Readmission Rate with and without Call",
+                hcaes(x = as.Date(discharge_month),
+                      y = period,
+                      group = discharge_followup_call_ind))
+  
+})
+```

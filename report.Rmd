@@ -1,0 +1,90 @@
+---
+title: "Provider Report"
+output: html_document
+---
+
+```{r setup, include = F}
+library(dplyr)
+library(ggplot2)
+library(highcharter)
+library(lubridate)
+library(magrittr)
+
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+Dear Dr. Cox,
+
+Thank you for your recent investment in tracking patients' length of stay.  Please see the below visualization for this project's main metric.
+
+```{r dataset}
+dataset <- readr::read_csv("dataset.csv")
+```
+
+```{r los_heatmap}
+dataset <- dataset %>%
+  mutate(discharge_month = floor_date(hosp_discharge_dt, "month"))
+
+los_heatmap_data <- dataset %>%
+  group_by(discharge_month, visit_reason) %>%
+  summarise(mean_los = mean(los_hours / 24)) %>%
+  ungroup()
+
+ggplot(los_heatmap_data, aes(x = as.Date(discharge_month), y = visit_reason)) +
+  geom_tile(aes(fill = mean_los),
+            colour = "white") +
+  scale_fill_gradient(low = "white",
+                      high = "steelblue") +
+  xlab("Discharge Month") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylab("Visit Condition") +
+  labs(fill = "LOS Days")
+```
+
+```{r last_month_los}
+last_month_los_highest <- los_heatmap_data %>% 
+  filter(discharge_month == floor_date(Sys.Date() %m-% months(1), "month")) %>% 
+  arrange(desc(mean_los)) %>% 
+  select(visit_reason) %>% 
+  slice(1) %>% 
+  as.character()
+```
+
+For the past month, the patient population with the longest length of stay that you cared for was **`r last_month_los_highest`**.
+
+The following graphs shows the arrival times for patients, split by weekends and weekdays.
+
+```{r minutes_midnight}
+minutes_midnight_data <- dataset %>% 
+  mutate(admit_month = floor_date(hosp_admit_dt, "month"),
+         weekend_weekday = case_when(admit_dow %in% c("Sat", "Sun") ~ "Weekend",
+                                     TRUE ~ "Weekday")) %>% 
+  group_by(weekend_weekday, admit_month) %>% 
+  summarize(mean_hours = mean(minutes_since_midnight)/60) %>% 
+  ungroup()
+
+# Split between weekends and weekdays
+minutes_midnight_data_weekday <- filter(minutes_midnight_data, 
+                                        weekend_weekday == "Weekday")
+
+minutes_midnight_data_weekend <- filter(minutes_midnight_data, 
+                                        weekend_weekday == "Weekend")
+
+# Visualize
+highchart(type = "stock") %>%
+  hc_add_series(minutes_midnight_data_weekday,
+                name = "Weekday Minutes",
+                type = "line",
+                marker = list(enabled = T, symbol = "circle", radius = 3),
+                hcaes(x = as.Date(admit_month), y = mean_hours)) %>%
+  hc_add_series(minutes_midnight_data_weekend,
+                name = "Weekend Minutes",
+                type = "line",
+                marker = list(enabled = T, symbol = "circle", radius = 3),
+                hcaes(x = as.Date(admit_month), y = mean_hours))
+```
+
+Best,
+
+The Clinical Quality Team

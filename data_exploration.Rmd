@@ -1,0 +1,107 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+Congratulations on your new job as a healthcare data analyst!
+
+Your first project is to work with an inpatient unit to help them understand more about their patients.
+
+The physicians that lead this unit have long felt that there are particular trends in their work, but they have not had the opportunity to explore them with data.  They hope that answering these questions can help them provide better care.
+
+Conduct preliminary exploratory analysis using dplyr.  The answers to these questions will inform quality improvement metrics that this hospital unit can focus on and track over time.
+
+1. Who are the patients that have long lengths of stay? Is there a variable that highlights a subgroup with a longer length of stay than other subgroups?
+
+2. Are there times when a particular group of patients are most likely to arrive at this inpatient unit?
+
+Here, load the data and see a brief snapshot:
+```{r}
+library(dplyr)
+library(magrittr)
+library(lubridate)
+library(ggplot2)
+
+dataset <- readr::read_csv("dataset.csv")
+head(dataset)
+```
+
+# Question 1: Length of Stay
+
+## Create length of stay variable
+Length of stay is the amount of time a patient spends in the hospital, most frequently displayed in hours.
+
+LOS = Discharge Date Time - Admit Date Time
+```{r}
+
+```
+
+## Visualize LOS Distribution
+```{r}
+
+```
+
+## Identify LOS subgroups
+Let's relate LOS to other variables in the dataset to see if there are particular subgroups of the cohort that could be targeted for intervention.
+```{r}
+
+```
+
+
+## Production ready plot
+```{r}
+# Prepare data for visualization
+
+
+#Roll up to the day time period instead of hours
+
+
+#create basic heat map
+
+
+#Add features
+
+```
+
+
+
+# Question 2: Arrival Time
+## Quantify time
+Time data is difficult because it is continuous but also cyclical
+```{r}
+#convert into minutes since midnight
+
+```
+
+##Visualize Distribution
+```{r}
+
+```
+
+##Identify arrival time subgroups
+```{r}
+#Split data by day of week
+
+```
+
+## Breakdown by day of week
+```{r}
+#Facet wrap the ggplot histogram by admit_dow
+
+```
+
+## Production ready plot
+```{r}
+#Summary data to plot
+
+
+#Split between weekends and weekdays
+
+
+#Visualize
+
+```
+
+
+
+

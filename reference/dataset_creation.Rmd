@@ -1,0 +1,142 @@
+---
+title: "Dataset Creation"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(lubridate)
+```
+
+
+```{r}
+all_dates <- seq.Date(as.Date("2018-08-01"), Sys.Date(), by = 1)
+```
+
+
+Data set of hospital visits that laster < 1 year.
+
+```{r}
+set.seed(1234)
+hosp_discharge_dt <- sample(all_dates, 600, replace = T)
+day_los <- sample(x = 1:365, replace = T, size = 600, prob = c(rep(.65, 3),
+                                                    rep(.12, 4),
+                                                    rep(.08, 5),
+                                                    rep(.02, 100),
+                                                    rep(.11, 10),
+                                                    rep(.01, 243)))
+hist(day_los, breaks = 50)
+hosp_admit_dt <- hosp_discharge_dt - day_los
+```
+
+```{r}
+dataset <- data.frame(hosp_admit_dt = hosp_admit_dt, hosp_discharge_dt = hosp_discharge_dt, day_los = day_los) %>% mutate(admit_dow = wday(hosp_admit_dt, label = T))
+
+dataset
+```
+Create it such that there are a spike of admissions from 10PM-2AM on weekends.
+
+```{r}
+dataset <- dataset %>%
+  rowwise() %>% 
+  mutate(time = case_when(admit_dow %in% c("Mon", "Tue", "Wed", "Thu", "Fri") ~ sample(0:86400, size = 1, prob = c(rep(.05, 10800), #0-3
+                                                                                                                   rep(.05, 10800), #3-6
+                                                                                                                   rep(.10, 10800), #6-9
+                                                                                                                   rep(.15, 10800), #9-12
+                                                                                                                   rep(.10, 10800), #12-3
+                                                                                                                   rep(.25, 10800), #3-6
+                                                                                                                   rep(.20, 10800), #6-9
+                                                                                                                   rep(.10, 10801))), #9-12
+                          admit_dow %in% c("Sat", "Sun") ~ sample(0:86400, size = 1, prob = c(rep(.05, 10800), #0-3
+                                                                                             rep(.05, 10800), #3-6
+                                                                                             rep(.10, 10800), #6-9
+                                                                                             rep(.45, 10800), #9-12
+                                                                                             rep(.10, 10800), #12-3
+                                                                                             rep(.10, 10800), #3-6
+                                                                                             rep(.10, 10800), #6-9
+                                                                                             rep(.05, 10801))) #9-12
+                          )) %>% 
+  ungroup()
+```
+
+```{r}
+dataset$discharge_time <- sample(dataset$time, replace = T, size = dim(dataset)[1])
+
+dataset <- dataset %>% 
+  mutate(hosp_admit_dt = lubridate::as_datetime(hosp_admit_dt),
+         hosp_discharge_dt = lubridate::as_datetime(hosp_discharge_dt),
+         hosp_admit_dt = hosp_admit_dt + time,
+         hosp_discharge_dt = hosp_discharge_dt + discharge_time)
+```
+
+```{r}
+reasons <- c("sports_injury", "planned_procedure", "asthma", "flu/infection", "seizure")
+
+dataset <- dataset %>%
+  rowwise() %>% 
+  mutate(visit_reason = case_when(between(day_los, 112, 122) ~ sample(reasons, size = 1, prob = c(.05, .80, .05, .05, .05)),
+                                  day_los < 112 ~ sample(reasons, size = 1, prob = rep(.20, 5)),
+                                  day_los > 122 ~ sample(reasons, size = 1, prob = c(.8, rep(.05, 4))),
+                                  admit_dow %in% c("Sat", "Sun") & between(hour(hosp_admit_dt),9, 12) ~ sample(reasons, size = 1, prob = c(.60, .10, .10, .10, .10)),
+                                  TRUE ~ sample(reasons, size = 1, prob = rep(.20, 5)))) %>%
+  ungroup()
+```
+
+
+```{r}
+dataset <- dataset %>% 
+  rowwise() %>% 
+  mutate(readmit_7_day_ind = as.numeric(case_when(day_los <= 3 ~ sample(0:1, size = 1, prob = c(.8, .2)),
+                                       between(day_los, 4, 10) ~ sample(0:1, size = 1, prob = c(.9, .1)),
+                                       day_los > 10 ~ sample(0:1, size = 1, prob = c(.95, .05)))),
+         
+         readmit_14_day_ind = as.numeric(case_when(day_los <= 3 ~ sample(0:1, size = 1, prob = c(.7, .3)),
+                                       between(day_los, 4, 10) ~ sample(0:1, size = 1, prob = c(.8, .2)),
+                                       day_los > 10 ~ sample(0:1, size = 1, prob = c(.95, .05)))),
+         
+         readmit_30_day_ind = as.numeric(case_when(day_los <= 3 ~ sample(0:1, size = 1, prob = c(.6, .4)),
+                                       between(day_los, 4, 10) ~ sample(0:1, size = 1, prob = c(.7, .3)),
+                                       day_los > 10 ~ sample(0:1, size = 1, prob = c(.90, .10))))) %>% 
+  select(-c(day_los, admit_dow, time, discharge_time)) %>% 
+  ungroup()
+
+dataset <- dataset %>% 
+  mutate(readmit_14_day_ind = case_when(readmit_7_day_ind == 1 ~ as.numeric(1),
+                                        TRUE ~ readmit_14_day_ind),
+         readmit_30_day_ind = case_when(readmit_14_day_ind == 1 ~ as.numeric(1),
+                                        TRUE ~ readmit_30_day_ind))
+```
+
+```{r}
+dataset <- dataset %>% 
+  rowwise() %>% 
+  mutate(discharge_followup_call_ind = case_when(readmit_30_day_ind == 1 ~ sample(0:1, size = 1, prob = c(.7, .3)),
+                                                 TRUE ~ sample(0:1, size = 1, prob = c(.4, .6))))
+```
+
+```{r}
+provs <- c("Dr. Houwser", "Dr. Grey", "Dr. Cox", "Dr. House", "Dr. Frankenstein")
+
+dataset <- dataset %>% 
+  rowwise() %>% 
+  mutate(provider = sample(provs, 1, replace = T)) %>% 
+  ungroup()
+```
+
+```{r}
+dataset <- dataset %>% 
+  rowwise() %>% 
+  mutate(age = sample(0:99, replace = T, size = 1, prob = c(rep(.02, 18),
+                                                            rep(.08, 12),
+                                                            rep(.30, 20),
+                                                            rep(.35, 10),
+                                                            rep(.20, 10),
+                                                            rep(.05, 30)))) %>% 
+  ungroup()
+```
+
+
+```{r}
+write.csv(dataset, "dataset.csv", row.names = F)
+```
+
