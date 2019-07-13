@@ -2,7 +2,7 @@
 title: "Provider Report"
 output: html_document
 params:
-  provider: "Dr. Cox"
+  provider: "Dr. Grey"
   visit_reason: "sports_injury"
 ---
 
